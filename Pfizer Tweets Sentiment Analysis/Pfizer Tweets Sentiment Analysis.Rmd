@@ -1,0 +1,1111 @@
+---
+title: "Untitled"
+author: "Victoria Zhang"
+date: "2022/5/8"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Install the Packages and Data Cleaning
+```{r}
+#install the packages
+library(ggplot2)
+library(tidyverse)
+library(devtools)
+install_github("kbenoit/quanteda.dictionaries")
+install_github("quanteda/quanteda.sentiment")
+library("quanteda.textplots")
+library(quanteda)
+library(quanteda.textmodels)
+
+library(sentometrics)
+library(pacman)
+library(tidytext)
+library(readr)
+library(textstem)
+library(SnowballC)
+library(plotly)
+library(syuzhet)
+library(textdata)
+library(wordcloud2)
+p_load("tidyverse", "ggplot2", "lubridate", "quanteda", "quanteda.dictionaries", "quanteda.sentiment", "quanteda.textplots")
+library(caret)
+library(ROCit)
+```
+
+```{r}
+#clear the environment
+rm(list=ls())
+
+#set the directory
+setwd("C:/Users/Victoria Zhang/Documents/HKBU DABE Courses/second semester/ECON7930 Analytics for Spatial, Textual and Social Network Data/group project")
+```
+
+```{r}
+#read about the data
+data<-read.csv("vaccination_tweets.csv",stringsAsFactors = FALSE)
+summary(data)
+head(data)
+```
+
+```{r}
+#view for any missing values in text
+#https://www.kaggle.com/code/shibaprasadb/analysing-pfizer-vaccine-tweets
+library(naniar)
+colSums(is.na(data))
+gg_miss_var(data) + labs(y = "The number of missing values")
+```
+
+
+```{r}
+#Ref https://towardsdatascience.com/twitter-text-analysis-in-r-ed7b81ecdb9a
+#using gsub to clean the data
+data$text<-as.character(data$text)
+data$text <- gsub("\\$", "", data$text) 
+data$text <- gsub("@\\w+", "", data$text)
+data$text <- gsub("[[:punct:]]","", data$text)
+data$text <- gsub("http\\w+", "", data$text)
+data$text <- gsub("[ |\t]{2,}", "", data$text)
+data$text <- gsub("^ ", "", data$text)
+data$text <- gsub(" $", "", data$text)
+#data$text <- gsub("RT","",data$text)
+data$text <- gsub("href", "", data$text)
+data$text <- gsub("([0-9])","", data$text)
+#replace quotation marks
+data$text<- gsub("\"", "",data$text)
+
+#removing the retweets
+data$text <-gsub("(RT|via)((?:\\b\\w*@\\w+)+)","",data$text)
+data$text <-gsub("@[[:alnum:]_]{4,}","",data$text)
+data$text <-gsub("#[[:alnum:]_]+","",data$text)
+
+# Replace "&" character reference with "and"
+data$text <-gsub("#&amp;","and",data$text)
+
+data$text <-gsub("@[a-z,A-Z]*","",data$text)
+
+#linebreaks removing text
+data$text<-gsub("\\n", " ", data$text)
+
+#remove dash at the last position
+data$text<-gsub("[-$]", " ",data$text)
+
+#replace__
+data$text<-gsub("\\__", " ",data$text)
+
+#replace "
+data$text<-gsub("\"", " ",data$text)
+data$text<-gsub("[\r\n]", " ",data$text)
+#return without the whitespace
+data$text<-gsub("^\\s+|\\s+$", " ",data$text)
+
+#lower the class
+data$text <- tolower(data$text)
+```
+
+
+```{r}
+#Ref https://www.kaggle.com/code/jacquelynfede/pfizertweets
+data(stop_words)
+text_words4<-data%>%
+  select(text) %>%
+  unnest_tokens(word,text) %>%
+  anti_join(stop_words)
+  
+text_words4word<-lemmatize_words(text_words4$word)
+text_words4$word<-wordStem(text_words4$word)
+
+text_words4<-text_words4 %>%
+  inner_join(get_sentiments("nrc"),by="word") %>%
+  filter(sentiment %in% c("negative","positive"))%>%
+  count(sentiment,word,sort = T) %>%
+  ungroup()
+
+text_words4
+
+text_words4_data<-text_words4%>%
+  filter(n>65) %>%
+ mutate(n = ifelse(sentiment == "negative", -n, n)) %>%
+    mutate(word = reorder(word, n)) %>%
+   dplyr::arrange(desc(n))
+  
+
+negative_and_positive_contributions<-ggplot(data = text_words4_data, mapping = aes(x = word, y = n, fill = sentiment)) +
+    geom_bar(alpha = 0.8, stat = "identity") +
+    labs(y = "Contribution to sentiment", x = NULL) +
+    coord_flip()+theme_bw()+ggtitle("Positive and Negative Contributions")
+
+ggplotly(negative_and_positive_contributions)
+```
+`
+
+```{r}
+#Ref https://zhuanlan.zhihu.com/p/27024648
+#Ref https://www.kaggle.com/code/peterge/vaccination-tweet-geo-and-sentiment-analysis
+# for create the sentiment
+data$Sentiment<- get_nrc_sentiment(data$text)
+```
+
+```{r}
+# convert the data to positive or the negative
+data$mysentiment<-ifelse(data$Sentiment$positive>data$Sentiment$negative,"Positive","Negative")
+data$mysentiment<-as.character(data$mysentiment)
+```
+
+```{r}
+#data visualization for different sentiments
+#Ref 
+sentimentscores_text<-data.frame(colSums(data$Sentiment))
+colnames(sentimentscores_text)<-c("score")
+
+sentimentscores_text<-cbind("sentiment"=rownames(sentimentscores_text),sentimentscores_text)
+rownames(sentimentscores_text)<-NULL
+sentimentscores_text
+
+sentimentscores_text$score=as.numeric(sentimentscores_text$score)
+sentimentscores_text$percentage=round(sentimentscores_text$score/(sum(sentimentscores_text$score)),2)
+sentimentscores_text$percentage
+
+
+fig<-ggplot(data = sentimentscores_text, aes(x = reorder(sentiment,score), y =score)) +
+        geom_bar(aes(fill = sentiment), stat = "identity",alpha=0.8 , position="dodge") +
+       theme(legend.position = "none") +coord_flip()+
+        xlab("Sentiments") + ylab("Total") + ggtitle("Sentiments for vaccination")+
+   geom_text(aes(label = percentage), position = position_dodge(width=0.75), vjust = -0.25)
+
+plotly_fig<-ggplotly(fig)
+plotly_fig
+
+```
+
+
+
+```{r}
+#view for the positive and negative distribution
+#https://www.kaggle.com/code/ojaswayadav/mk-iv-supra-tfidf
+  
+densityplot_Positive<-ggplot(data=data,aes(data$Sentiment$positive))+geom_histogram(bins=10,fill="purple",alpha = 0.6)+theme_bw()+labs(title="Histogram for Positive Words Distributions", x="Positive Sentiment", y="Count")+xlim(c(0,6))
+
+densityplot_plotly_positive<-ggplotly(densityplot_Positive)
+densityplot_plotly_positive
+
+
+densityplot_Negative<-ggplot(data=data,aes(data$Sentiment$negative))+geom_histogram(bins=10,fill="purple",alpha = 0.6)+theme_bw()+labs(title="Histogram for Positive Words Distributions", x="Negative Sentiment", y="Count")+xlim(c(0,6))
+
+densityplot_plotly_negative<-ggplotly(densityplot_Negative)
+densityplot_plotly_negative
+```
+
+```{r}
+#view for the positive and negative barplot distributions
+barchart<-ggplot(data=data,aes(data$mysentiment,fill=mysentiment))+geom_bar()+xlab("Sentiments")
+
+barchart_plotly<-ggplotly(barchart)
+barchart_plotly
+```
+
+
+### Users Location Explorations
+```{r}
+#Ref https://www.earthdatascience.org/courses/earth-analytics/get-data-using-apis/use-twitter-api-r/
+data$user_location<-as.character(data$user_location)
+data$user_location<-as.character(data$user_location)
+data$user_location<-gsub("[#]","",data$user_location)
+data$user_location <- gsub("http\\w+", "", data$user_location)
+data$user_location <- gsub("([0-9])","", data$user_location)
+data$user_location <- gsub("[?]","", data$user_location)
+data$user_location <- gsub("@\\w+", "", data$user_location)
+data$user_location <- gsub("[-]", " ", data$user_location)
+data$user_location <- gsub("[,]", " ", data$user_location)
+data$user_location <- gsub("[/]", " ", data$user_location)
+data$user_location <- gsub('\\"', " ", data$user_location)
+data$user_location <- gsub("[[:punct:]]","", data$user_location)
+
+```
+
+
+```{r}
+#Geographical Location
+#Ref https://www.earthdatascience.org/courses/earth-analytics/get-data-using-apis/use-twitter-api-r/
+#https://www.kaggle.com/code/andradaolteanu/ggplot-101-the-ultimate-cheatsheet#4.-Barplots
+
+
+Geo_Location<-data %>%
+  select(user_location) %>%
+  count(user_location, sort = TRUE) %>%
+  mutate(location = reorder(user_location,n)) %>%
+  na.omit() %>%
+  filter(n!=2335)%>%
+    top_n(10)
+  
+options(repr.plot.width=16, repr.plot.height=8)
+colorsPuYe <- c("#922B21", "#EE865D", "#DDCD5E", "#59BEC4", "#048B9F", "#114676")
+my_theme <- theme(
+        text = element_text(color = "grey35"),
+        plot.title = element_text(size = 25, face = "bold"),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 15),
+        axis.line = element_line(size = 1.2, color = "grey35"),
+        legend.box.background = element_rect(color = "grey75", size = 1),
+        legend.box.margin = margin(t = 5, r = 5, b = 5, l = 5),
+        legend.title = element_text(face = "bold", size = 15),
+        legend.text = element_text(size=13))
+
+
+fig<-ggplot(data=Geo_Location,aes(x = location,y = n)) +
+  geom_bar(stat = "identity", aes(fill = n)) +
+  coord_flip() +
+      labs(x = "Location",
+      y = "Count",
+      title = "Twitter Users Location",size=6)+scale_fill_gradient(low=colorsPuYe[3], high=colorsPuYe[1], guide = "none") +
+  theme_test() +
+  my_theme 
+
+plotly_fig1<-ggplotly(fig)
+plotly_fig1
+```
+
+###Hashtags and Network Explorations
+```{r}
+#explore networks using hash tags
+#Ref https://quanteda.io/articles/pkgdown/examples/twitter.html
+#https://www.kaggle.com/code/andradaolteanu/covid-19-sentiment-analysis-social-networks/notebook#9.-Social-Network-Analysis
+data$hashtags <- gsub("[[:punct:]]"," ", data$hashtags)
+data$hashtags <- gsub("([0-9])"," ", data$hashtags)
+data$hashtags <- gsub("http\\w+", " ", data$hashtags)
+data$hashtags <- tolower(data$hashtags)
+
+```
+
+
+```{r}
+hashtag<-corpus(data$hashtags)
+
+hashtag<-hashtag %>%
+  quanteda::tokens(remove_punct = TRUE,
+         remove_symbols = TRUE,
+         remove_numbers = TRUE,
+         remove_url = TRUE,
+         ) %>% 
+  quanteda::tokens_remove(stopwords("en"), padding = TRUE)
+   
+hashtag<-tokens_replace(hashtag, pattern = lexicon::hash_lemmas$token, replacement = lexicon::hash_lemmas$lemma)
+hashtag<-quanteda::tokens_wordstem(hashtag,language = quanteda_options("language_stemmer"))
+
+hashtag_tokenized<-hashtag %>%
+  dfm() %>%
+    dfm_remove(".") %>% 
+  dfm_remove("__") %>%
+  dfm_remove("-") %>%
+  dfm_trim(min_termfreq = 5) %>%
+  dfm_select("^\\p{L}+$", valuetype = "regex", min_nchar = 2) %>%
+  dfm_remove("")
+```
+
+```{r}
+toptag <- names(topfeatures(hashtag_tokenized, 50))
+toptag
+```
+
+```{r}
+#construct concurrence feature
+
+tag_fcm <- fcm(hashtag_tokenized)
+head(tag_fcm)
+
+topgat_fcm <- fcm_select(tag_fcm, pattern = toptag)
+textplot_network(topgat_fcm, min_freq = 0.1, edge_alpha = 0.8, edge_size = 5)
+```
+
+
+### Twitter Text Frequency Analysis
+```{r}
+#Ref https://www.kaggle.com/code/andradaolteanu/covid-19-sentiment-analysis-social-networks/notebook#5.-Basic-EDA-on-Tweets-Data
+data3<-data
+data3$date<-as.character(data3$date)
+data3$date<-substr(data3$date,1,10)
+data3$date<-as.Date(data3$date, "%Y/%m/%d")
+
+tweets_frequency<-data3 %>% 
+    select(date) %>% 
+    group_by(date) %>% 
+    summarize(n = n())
+
+  
+tweets_frequency_graph<-ggplot(tweets_frequency,aes(x=date, y = n))+ geom_line(size = 1.5, color = colorsPuYe[1])  +
+    my_theme  +
+    labs(title = "Number of Tweets in Time", y = "Frequency")+theme_bw()
+
+ggplotly(tweets_frequency_graph)
+```
+
+# Text Mining
+## Convert to Corpus
+```{r}
+#convert the data into corpus
+data_select<- data%>%
+  select(text,mysentiment)
+
+corpus<-corpus(data_select,text_field = "text")
+head(docvars(corpus))
+summary(corpus)
+```
+
+
+
+## Dictonary Method tf-idf analysis
+```{r}
+corpus1<-corpus %>%
+  quanteda::tokens(remove_punct = TRUE,
+         remove_symbols = TRUE,
+         remove_numbers = TRUE,
+         remove_url = TRUE,
+         ) %>% 
+  quanteda::tokens_remove(c(stopwords("en")), padding = TRUE)
+
+   
+corpus1<-tokens_replace(corpus1, pattern = lexicon::hash_lemmas$token, replacement = lexicon::hash_lemmas$lemma)
+corpus1<-quanteda::tokens_wordstem(corpus1,language = quanteda_options("language_stemmer"))
+
+corpus1_tokenized<-corpus1 %>%
+  dfm() %>%
+    dfm_remove(".") %>% 
+  dfm_remove("__") %>%
+  dfm_remove("-") %>%
+  dfm_trim(min_termfreq = 5) %>%
+  dfm_select("^\\p{L}+$", valuetype = "regex", min_nchar = 2) %>%
+  dfm_remove("")
+```
+
+### Wordcloud Analysis
+```{r}
+#total positive word cloud
+corpus_wordcloud_positive<-corpus1_tokenized %>%
+ dfm_subset(mysentiment=="Positive")
+
+freqs_corpus_positive <- colSums(corpus_wordcloud_positive)
+words_corpus_positive <- colnames(corpus_wordcloud_positive)
+wordlist_corpus_positive <- data.frame(words_corpus_positive ,freqs_corpus_positive)
+
+
+wordcloud_fig<-wordcloud2(wordlist_corpus_positive ,size=5,shape="star",color = "random-light")
+
+wordcloud_fig
+
+```
+
+```{r}
+#total negative wordcloud
+corpus_wordcloud_negative<-corpus1_tokenized %>%
+ dfm_subset(mysentiment=="Negative")
+
+freqs_corpus_negative <- colSums(corpus_wordcloud_negative)
+words_corpus_negative <- colnames(corpus_wordcloud_negative)
+wordlist_corpus_negative <- data.frame(words_corpus_negative,freqs_corpus_negative)
+
+wordcloud_fig<-wordcloud2(wordlist_corpus_negative,size=1,shape="star",color = "random-light")
+
+wordcloud_fig
+
+```
+
+## Frequency Analysis
+###DFM Frequency Analysis
+```{r}
+p_load("quanteda.textstats")
+
+#training set frequency
+textstat_frequency(corpus1_tokenized, n = 20) -> feature_dfm_corpus
+
+fct_reorder(feature_dfm_corpus$feature, feature_dfm_corpus$frequency, .desc=F) -> feature_dfm_corpus$feature
+
+feature_dfm_corpus %>% 
+  ggplot(aes(x=feature, y=frequency)) +
+  geom_point()+
+  theme_minimal()+
+  theme(panel.grid.minor = element_blank()) +
+  coord_flip()
+  
+dfm_tfidf(corpus1_tokenized)-> dfmW_corpus
+dfmW_corpus
+
+
+```
+
+### Cumsum Frequency Graph
+```{r message=FALSE, warning=FALSE}
+#test set
+textstat_frequency(corpus1_tokenized) %>% 
+  #desv feature
+  arrange(-frequency) %>% 
+  mutate(cum=cumsum(frequency)/1000000) %>% 
+  #cumulative percentage
+  mutate(cumper=cumsum(frequency/sum(frequency)*100))-> feature_dfm_corpus
+
+#x for ranking while y for the cumulative sum
+fct_reorder(feature_dfm_corpus$feature, feature_dfm_corpus$frequency, .desc=T) -> feature_dfm_corpus$feature
+
+feature_dfm_corpus %>% 
+  ggplot(aes(x=rank, y=cum))+
+  geom_point()+
+  theme_minimal()+
+  labs(x="Frequency Order", y="Cumulative Frequency (in Million)")
+```
+
+
+```{r}
+toptag1 <- names(topfeatures(corpus1_tokenized, 50))
+toptag1
+
+tag_fcm1 <- fcm(corpus1_tokenized)
+head(tag_fcm1)
+
+topgat_fcm1 <- fcm_select(tag_fcm1, pattern = toptag1)
+textplot_network(topgat_fcm1, min_freq = 0.1, edge_alpha = 0.8, edge_size = 5)
+```
+
+
+
+
+### Split for the train and the test Set
+```{r}
+#first split the test set and the train set
+#Ref https://burtmonroe.github.io/TextAsDataCourse/Tutorials/TADA-Classification.nb.html
+#https://tutorials.quanteda.io/machine-learning/nb/
+#Lemmenization References https://stackoverflow.com/questions/62329148/lemmatize-using-quanteda
+
+#first lemmenization then wordstem
+set.seed(1234)
+
+id_train <- sample(1:ndoc(corpus),ndoc(corpus)*0.7, replace=F)
+head(id_train, 10)
+
+id_numeric <- 1:ndoc(corpus)
+
+corpus_train<-quanteda::corpus_subset(corpus, id_numeric %in% id_train) %>%
+  corpus_reshape("sentences") %>%
+   quanteda::tokens(remove_punct = TRUE,
+         remove_symbols = TRUE,
+         remove_numbers = TRUE,
+         remove_url = TRUE,
+         ) %>% 
+    quanteda::tokens_remove(c(stopwords("en")), padding = TRUE)
+
+corpus_train<-tokens_replace(corpus_train,pattern = lexicon::hash_lemmas$token, replacement = lexicon::hash_lemmas$lemma)
+
+corpus_train<-quanteda::tokens_wordstem(corpus_train,language = quanteda_options("language_stemmer"))
+corpus_train<-dfm(corpus_train)
+
+
+corpus_train<-corpus_train %>%
+  dfm_remove(".") %>% 
+  dfm_remove("__") %>%
+  dfm_remove("-") %>%
+  dfm_trim(min_termfreq = 5) %>%
+  dfm_select("^\\p{L}+$", valuetype = "regex", min_nchar = 2) %>%
+  dfm_remove("")%>%
+  dfm_wordstem("en")
+
+#test set
+corpus_test<-corpus_subset(corpus, !(id_numeric %in% id_train)) %>%
+  corpus_reshape("sentences") %>%
+   quanteda::tokens(remove_punct = TRUE,
+         remove_symbols = TRUE,
+         remove_numbers = TRUE,
+         remove_url = TRUE,
+         ) %>% 
+    quanteda::tokens_remove(c(stopwords("en")), padding = TRUE)
+  
+corpus_test<-tokens_replace(corpus_test, pattern = lexicon::hash_lemmas$token, replacement = lexicon::hash_lemmas$lemma)
+
+corpus_test<-quanteda::tokens_wordstem(corpus_test,language = quanteda_options("language_stemmer"))
+
+corpus_test<-dfm(corpus_test)
+
+corpus_test<-corpus_test %>%
+  dfm_remove(".") %>% 
+  dfm_remove("__") %>%
+  dfm_remove("-") %>%
+  dfm_trim(min_termfreq = 5) %>%
+  dfm_select("^\\p{L}+$", valuetype = "regex", min_nchar = 2) %>%
+  dfm_remove("") %>%
+  dfm_wordstem("en")
+```
+
+
+### Top Features for Training and Test Sets
+```{r}
+topfeatures(dfm_tfidf(corpus_train, scheme_tf = "prop"),n=10)
+topfeatures(dfm_tfidf(corpus_test, scheme_tf = "prop"),n=10)
+topfeatures(dfm_tfidf(corpus1_tokenized, scheme_tf = "prop"),n=10)
+```
+
+
+### Wordcloud
+```{r}
+train_positive<-corpus_train %>%
+ dfm_subset(mysentiment=="Positive")
+
+freqs_trainpositive <- colSums(train_positive)
+words_trainpositive <- colnames(train_positive)
+wordlist_trainpositive <- data.frame(words_trainpositive,freqs_trainpositive)
+
+(wordcloud2)
+wordcloud_fig<-wordcloud2(wordlist_trainpositive,size=1,shape="star",color = "random-light")
+
+wordcloud_fig
+```
+
+```{r}
+train_negative<-corpus_train %>%
+ dfm_subset(mysentiment=="Negative")
+
+freqs_trainnegative <- colSums(train_negative)
+words_trainnegative <- colnames(train_negative)
+wordlist_trainnegative <- data.frame(words_trainnegative,freqs_trainnegative)
+
+(wordcloud2)
+wordcloud_fig1<-wordcloud2(wordlist_trainnegative,size=1,shape="star",color = "random-light")
+
+wordcloud_fig1
+```
+
+```{r}
+# for the test set positive
+test_positive<-corpus_test %>%
+ dfm_subset(mysentiment=="Positive")
+
+freqs_testpositive <- colSums(test_positive)
+words_testpositive <- colnames(test_positive)
+wordlist_testpositive <- data.frame(words_testpositive,freqs_testpositive)
+
+
+wordcloud_fig2<-wordcloud2(wordlist_testpositive,size=1,shape="star",color = "random-light")
+
+wordcloud_fig2
+```
+
+```{r}
+test_negative<-corpus_test %>%
+ dfm_subset(mysentiment=="Negative")
+
+freqs_testnegative <- colSums(test_negative)
+words_testnegative <- colnames(test_negative)
+wordlist_testnegative <- data.frame(words_testnegative,freqs_testnegative)
+
+wordcloud_fig3<-wordcloud2(wordlist_testnegative,size=1,shape="star",color = "random-light")
+
+wordcloud_fig3
+```
+
+
+```{r message=FALSE, warning=FALSE}
+p_load("quanteda.textstats")
+
+#training set frequency
+textstat_frequency(corpus_train, n = 20) -> feature_dfm_train
+
+fct_reorder(feature_dfm_train$feature, feature_dfm_train$frequency, .desc=F) -> feature_dfm_train$feature
+
+feature_dfm_train %>% 
+  ggplot(aes(x=feature, y=frequency)) +
+  geom_point()+
+  theme_minimal()+
+  theme(panel.grid.minor = element_blank()) +
+  coord_flip()
+  
+dfm_tfidf(corpus_train)-> dfmW_train
+dfmW_train
+```
+
+```{r}
+#test set frequency
+textstat_frequency(corpus_test, n = 20) -> feature_dfm_test
+
+fct_reorder(feature_dfm_test$feature, feature_dfm_test$frequency, .desc=F) -> feature_dfm_test$feature
+
+feature_dfm_test %>% 
+  ggplot(aes(x=feature, y=frequency)) +
+  geom_point()+
+  theme_minimal()+
+  theme(panel.grid.minor = element_blank()) +
+  coord_flip()
+  
+dfm_tfidf(corpus_test)-> dfmW_test
+dfmW_test
+
+```
+
+```{r message=FALSE, warning=FALSE}
+#training set
+textstat_frequency(corpus_train) %>% 
+  #desv feature
+  arrange(-frequency) %>% 
+  mutate(cum=cumsum(frequency)/1000000) %>% 
+  #cumulative percentage
+  mutate(cumper=cumsum(frequency/sum(frequency)*100))-> feature_dfm_train
+
+#x for ranking while y for the cumulative sum
+fct_reorder(feature_dfm_train$feature, feature_dfm_train$frequency, .desc=T) -> feature_dfm_train$feature
+
+feature_dfm_train %>% 
+  ggplot(aes(x=rank, y=cum))+
+  geom_point()+
+  theme_minimal()+
+  labs(x="Frequency Order", y="Cumulative Frequency (in Million)")
+```
+
+```{r message=FALSE, warning=FALSE}
+#test set
+textstat_frequency(corpus_test) %>% 
+  #desv feature
+  arrange(-frequency) %>% 
+  mutate(cum=cumsum(frequency)/1000000) %>% 
+  #cumulative percentage
+  mutate(cumper=cumsum(frequency/sum(frequency)*100))-> feature_dfm_test
+
+#x for ranking while y for the cumulative sum
+fct_reorder(feature_dfm_test$feature, feature_dfm_test$frequency, .desc=T) -> feature_dfm_test$feature
+
+feature_dfm_test %>% 
+  ggplot(aes(x=rank, y=cum))+
+  geom_point()+
+  theme_minimal()+
+  labs(x="Frequency Order", y="Cumulative Frequency (in Million)")
+```
+
+```{r message=FALSE, warning=FALSE}
+### Cumulative percentage  for training set
+feature_dfm_train %>% 
+  ggplot(aes(x=rank, y=cumper))+
+  geom_point()+
+  theme_minimal()+
+  labs(x="Frequency Order", y="Cumulative %")+
+  scale_y_continuous(breaks = seq(0, 100, by = 10))
+
+```
+
+```{r}
+### Cumulative percentage  for test set
+feature_dfm_test %>% 
+  ggplot(aes(x=rank, y=cumper))+
+  geom_point()+
+  theme_minimal()+
+  labs(x="Frequency Order", y="Cumulative %")+
+  scale_y_continuous(breaks = seq(0, 100, by = 10))
+
+```
+
+
+## Modeling Part
+### Naive Bayes Analysis
+```{r}
+
+sentmod.nb <- textmodel_nb(corpus_train,corpus_train$mysentiment, distribution = "Bernoulli")
+summary(sentmod.nb)
+
+corpus_matched <- dfm_match(corpus_test,features=featnames(corpus_train))
+```
+
+```{r}
+#for the classification
+actual_class <- corpus_matched$mysentiment
+predicted_value.nb <- predict(sentmod.nb, newdata=corpus_matched, type="probability")
+predicted_class.nb <- predict(sentmod.nb, newdata=corpus_matched)
+tab_class <- table(actual_class,predicted_class.nb)
+tab_class
+```
+
+```{r}
+# for the confusion matrix
+
+confusionMatrix(tab_class, mode = "everything")
+```
+```{r}
+sort(sentmod.nb$param[2,],dec=T)[1:20]
+sort(sentmod.nb$param[2,],dec=F)[1:20]
+```
+
+
+```{r}
+
+#find the most positive and most negative words
+## Most positive words
+sort(sentmod.nb$param[2,],dec=T)[1:20]
+fig_naivebayes_positive<-barplot(sort(sentmod.nb$param[2,],dec=T)[1:20],col="purple",main="Top 20 Positive Words",xlab="Words",ylab="Probability")
+
+fig_naivebayes_positive
+
+
+## Most negative words
+
+sort(sentmod.nb$param[2,],dec=F)[1:20]
+fig_naivebayes_negative<-barplot(sort(sentmod.nb$param[2,],dec=F)[1:20],col="purple",main="Top 20 Negative Words",xlab="Words",ylab="Probability")
+fig_naivebayes_negative
+
+```
+
+```{r}
+#for the auc value
+
+sentmod.nb_roc <- rocit(score =predict(sentmod.nb, newdata=corpus_matched, type="probability")[,"Positive"] ,class = actual_class,negref = "Negative")
+sentmod.nb_roc$AUC
+```
+
+
+```{r}
+#plot for the distribution
+summary(sentmod.nb)
+```
+
+```{r}
+## Plot weights
+plot(colSums(corpus_train),sentmod.nb$param[2,], pch=19, col=rgb(0,0,0,.3), cex=.5, log="x", main="Posterior Probabilities, Naive Bayes Classifier, IMDB", ylab="<--- Negative Reviews --- Positive Reviews --->", xlab="Total Appearances")
+text(colSums(corpus_train),sentmod.nb$param[2,], colnames(corpus_train),pos=4,cex=5*abs(.5-sentmod.nb$param[2,]), col=rgb(0,0,0,1.5*abs(.5-sentmod.nb$param[2,])))
+```
+
+```{r}
+#for the predictions
+predicted_prob <- predict(sentmod.nb, newdata=corpus_matched, type="probability")
+dim(predicted_prob)
+head(predicted_prob)
+summary(predicted_prob)
+```
+
+### Ridge Analysis
+```{r}
+p_load("glmnet", "foreach", "iterators", "parallel", "doParallel")
+
+# Ridge regression (Logistic with L2-regularization)
+cl = makeCluster(4)
+registerDoParallel(cl)
+
+sentmod.ridge <- cv.glmnet(x=corpus_train,
+                      y=corpus_train$mysentiment,
+                           family="binomial", 
+                           alpha=0,  
+                           nfolds=5, 
+                           parallel=TRUE, 
+                           intercept=TRUE,
+                           type.measure="class")
+summary(sentmod.ridge)
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+plot(sentmod.ridge)
+```
+
+```{r}
+
+# Let us look at the performance
+predicted_value.ridge <- predict(sentmod.ridge, newx=corpus_matched,s="lambda.min")[,1]
+
+predicted_class.ridge <- rep(NA,length(actual_class))
+
+predicted_class.ridge[predicted_value.ridge>0] <- "Positive"
+predicted_class.ridge[predicted_value.ridge<0] <- "Negative"
+
+tab_class.ridge <- table(actual_class,predicted_class.ridge)
+tab_class.ridge
+
+confusionMatrix(tab_class.ridge,mode="everything")
+
+```
+
+```{r}
+#auc value
+sentmod.ridge_roc <- rocit(score = predicted_value.ridge, class = actual_class,negref = "Negative")
+sentmod.ridge_roc$AUC
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+# plots
+plot(colSums(corpus_train),coef(sentmod.ridge)[-1,1], pch=19, col=rgb(0,0,0,.3), cex=.5, log="x", main="Ridge Regression Coefficients, IMDB", ylab="<--- Negative Reviews --- Positive Reviews --->", xlab="Total Appearances", xlim = c(1,50000))
+
+text(colSums(corpus_train),coef(sentmod.ridge)[-1,1], colnames(corpus_train),pos=4,cex=200*abs(coef(sentmod.ridge)[-1,1]))
+
+plot(colSums(corpus_train),log(colSums(corpus_train))*coef(sentmod.ridge)[-1,1], pch=19, col=rgb(0,0,0,.3), cex=.5, log="x", main="Ridge Regression Coefficients (Impact Weighted), IMDB", ylab="<--- Negative Reviews --- Positive Reviews --->", xlab="Total Appearances", xlim = c(1,50000))
+
+text(colSums(corpus_train),log(colSums(corpus_train))*coef(sentmod.ridge)[-1,1], colnames(corpus_train),pos=4,cex=50*abs(log(colSums(corpus_train))*coef(sentmod.ridge)[-1,1]))
+```
+
+```{r}
+sort(log(colSums(corpus_train))*coef(sentmod.ridge)[-1,1],dec=T)[1:20]
+sort(log(colSums(corpus_train))*coef(sentmod.ridge)[-1,1],dec=F)[1:20]
+```
+
+```{r}
+# Most positive and negative features by impact
+sort(log(colSums(corpus_train))*coef(sentmod.ridge)[-1,1],dec=T)[1:20]
+Ridge_positivegraph<-barplot(sort(log(colSums(corpus_train))*coef(sentmod.ridge)[-1,1],dec=T)[1:20],col="purple",main="Top 20 Positive Words",xlab="Words",ylab="Probability")
+Ridge_positivegraph
+
+
+sort(log(colSums(corpus_train))*coef(sentmod.ridge)[-1,1],dec=F)[1:20]
+Ridge_negativegraph<-barplot(sort(log(colSums(corpus_train))*coef(sentmod.ridge)[-1,1],dec=F)[1:20],col="purple",main="Top 20 Negative Words",xlab="Words",ylab="Probability")
+Ridge_positivegraph
+```
+
+
+### Support Vector Machine
+```{r}
+
+p_load("e1071")
+
+sentmod.svm <- svm(x=corpus_train,
+                   y=as.factor(corpus_train$mysentiment),
+                   kernel="linear", 
+                   cost=10, 
+                   probability=TRUE)
+```
+
+
+```{r}
+summary(sentmod.svm )
+```
+
+```{r}
+predicted_class.svm <- predict(sentmod.svm, newdata=corpus_matched)
+tab_class.svm <- table(actual_class,predicted_class.svm)
+tab_class.svm
+
+confusionMatrix(tab_class.svm, mode="everything")
+```
+
+```{r}
+predicted_prob.svm <- attr(predict(sentmod.svm, newdata=corpus_matched, probability=TRUE),"probabilities")[,"Positive"]
+
+sentmod.svm_roc <- rocit(score = predicted_prob.svm, class = actual_class,negref = "Negative")
+sentmod.svm_roc$AUC
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+sort(log(colSums(corpus_train))*sentmod.svm$coefs[-1,1],dec=T)[1:20]
+sort(log(colSums(corpus_train))*sentmod.svm$coefs[-1,1],dec=F)[1:20]
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+library(devtools)
+library(h2o)
+h2o.init(nthreads = -1)
+h2o.removeAll() 
+
+# Convert to df then h2o
+dfmat_train_df<- as.data.frame(corpus_train)
+
+dfmat_train_df$mysentiment <- as.factor((corpus_train$mysentiment))
+
+#transform to h20 object
+dfmat_train_h2o <- as.h2o(dfmat_train_df)
+
+# for the test set
+# Convert to df then h2o
+dfmat_test_df<- as.data.frame(corpus_test)
+dfmat_test_df$mysentiment<-as.factor(docvars(corpus_test)$mysentiment)
+
+
+#transform to h20 object
+dfmat_test_h2o <- as.h2o(dfmat_test_df)
+
+#last column sentimnet variable
+#view the length of dfmat_train_h2o
+y = length(dfmat_train_df)
+x = 2:length(dfmat_train_df)-1
+```
+
+
+
+### Random Forest
+```{r}
+#train the random forest model
+encoding = "OneHotExplicit"
+sentmod.rf =  h2o.randomForest(
+  x=x,
+  y=y,
+  training_frame = dfmat_train_h2o, ntrees = 100,
+                          nfolds = 5,seed = 1,categorical_encoding = encoding
+                           
+)
+
+sentmod.rf
+```
+
+
+```{r}
+summary(sentmod.rf)
+varimp_rf<- h2o.varimp(sentmod.rf)
+varimp_rf
+
+varimp_rf_plot <- h2o.varimp_plot(sentmod.rf)
+varimp_rf_plot
+
+#predict the model
+sentmod.rf_per<-h2o.performance(sentmod.rf, newdata =dfmat_test_h2o)
+sentmod.rf_pred<-predict(sentmod.rf, newdata =dfmat_test_h2o)
+
+rf_confusion_matrix<-h2o.confusionMatrix(sentmod.rf)
+```
+
+
+```{r}
+#f1
+f1_rf <- h2o.F1(sentmod.rf_per)
+f1_rf
+
+#auc
+auc_rf <- h2o.auc(sentmod.rf_per,train = TRUE, valid = TRUE, xval = FALSE)
+auc_rf
+```
+
+### Gradient Boosting
+```{r}
+#xgboost
+sentmod.gbm= h2o.gbm(
+  x=x,
+  y=y,
+  training_frame = dfmat_train_h2o,
+                           nfolds = 5,
+                    seed = 1,
+)
+```
+
+```{r}
+sentmod.gbm
+```
+
+```{r}
+summary(sentmod.gbm)
+varimp_gbm<- h2o.varimp(sentmod.gbm)
+varimp_gbm
+
+varimp_gbm_plot <- h2o.varimp_plot(sentmod.gbm)
+varimp_gbm_plot
+
+#predict the model
+sentmod.gbm_per<-h2o.performance(sentmod.gbm, newdata =dfmat_test_h2o)
+sentmod.gbm_pred<-predict(sentmod.gbm, newdata =dfmat_test_h2o)
+gbm_confusion_matrix<-h2o.confusionMatrix(sentmod.gbm)
+```
+
+
+```{r}
+#f1
+f1_gbm <- h2o.F1(sentmod.gbm_per)
+f1_gbm
+
+#auc
+auc_gbm <- h2o.auc(sentmod.gbm_per,train = TRUE, valid = TRUE, xval = FALSE)
+auc_gbm
+```
+
+
+### Deep Learning
+```{r}
+#Ref https://docs.h2o.ai/h2o-tutorials/latest-stable/tutorials/deeplearning/index.html
+sentmod.deeplearning <- h2o.deeplearning(
+  training_frame=dfmat_train_h2o, 
+  x=x,
+  y=y,
+  activation="RectifierWithDropout", 
+  input_dropout_ratio = 0.2,
+  hidden=c(200,200),      
+  epochs=1,
+  variable_importances=T,nesterov_accelerated_gradient = T,
+  rate=0.01, 
+  rate_annealing=2e-6,            
+  momentum_start=0.2,           
+  momentum_stable=0.4, 
+  momentum_ramp=1e7, 
+  
+)
+```
+
+```{r}
+summary(sentmod.deeplearning)
+```
+
+```{r}
+varimp_deepleaerning<- h2o.varimp(sentmod.deeplearning)
+varimp_deepleaerning
+
+varimp_deeplearning_plot <- h2o.varimp_plot(sentmod.deeplearning)
+varimp_gbm_plot
+```
+
+
+```{r,warning=FALSE}
+sentmod.deeplearning_per<-h2o.performance(sentmod.deeplearning, newdata =dfmat_test_h2o)
+sentmod.deeplearning_pred<-predict(sentmod.deeplearning, newdata =dfmat_test_h2o)
+deeplearning_confusion_matrix<-h2o.confusionMatrix(sentmod.deeplearning)
+```
+
+```{r,warning=FALSE}
+deeplearning_confusion_matrix
+```
+```{r}
+#f1
+f1_deeplearning <- h2o.F1(sentmod.deeplearning_per)
+f1_deeplearning
+
+#auc
+auc_deeplearning <- h2o.auc(sentmod.deeplearning_per,train = TRUE, valid = TRUE, xval = FALSE)
+auc_deeplearning
+```
+
+
+```{r}
+rf_curve_dat <- data.frame(sentmod.rf_per@metrics$thresholds_and_metric_scores) %>%
+    select(c(tpr,fpr,tnr,fnr))
+
+gbm_curve_dat <- data.frame(sentmod.gbm_per@metrics$thresholds_and_metric_scores) %>%
+    select(c(tpr,fpr,tnr,fnr))
+
+deeplearning_curve_dat <- data.frame(sentmod.deeplearning_per@metrics$thresholds_and_metric_scores) %>%
+    select(c(tpr,fpr,tnr,fnr))
+```
+
+### ROC Curve Models Evaluations
+```{r}
+# for the AUC Curve
+plot(c(0,1),c(0,1), type="n",ylab = "Sensitivity (TPR)", xlab = "1-Specificity (FPR)",main="ROC Curve")
+par(new=TRUE)
+lines(c(0,1),c(0,1), col="grey", lty=2)
+lines(sentmod.nb_roc$FPR,sentmod.nb_roc$TPR,col="red",lwd=2)
+lines(sentmod.ridge_roc$FPR,sentmod.ridge_roc$TPR,col="orange",lwd=2)
+lines(sentmod.svm_roc$FPR,sentmod.svm_roc$TPR,lwd=2,col="green")
+lines(rf_curve_dat$fpr,rf_curve_dat$tpr,lwd=2,col="purple")
+lines(gbm_curve_dat$fpr,gbm_curve_dat$tpr,lwd=2,col="blue")
+lines(deeplearning_curve_dat$fpr,deeplearning_curve_dat$tpr,lwd=2,col="yellow")
+
+
+legend("bottomright",legend=c("Naive Bayes","Ridge Regression","Support Vector Machine","Random Forest","Gradient Boosting","Deep Learning"), col=c("red","orange","green","purple","blue","yellow"),lty=1,lwd=2)
+
+```
+
+
+# Ref:
+https://towardsdatascience.com/twitter-text-analysis-in-r-ed7b81ecdb9a
+https://datascienceineducation.com/c11.html
+https://zhuanlan.zhihu.com/p/27024648
+https://www.kaggle.com/code/peterge/vaccination-tweet-geo-and-sentiment-analysis
+https://www.kaggle.com/code/ojaswayadav/mk-iv-supra-tfidf
+https://www.earthdatascience.org/courses/earth-analytics/get-data-using-apis/use-twitter-api-r/
+https://www.earthdatascience.org/courses/earth-analytics/get-data-using-apis/use-twitter-api-r/
+https://www.kaggle.com/code/andradaolteanu/ggplot-101-the-ultimate-cheatsheet#4.-Barplots
+https://quanteda.io/articles/pkgdown/examples/twitter.html
+https://www.kaggle.com/code/andradaolteanu/covid-19-sentiment-analysis-social-networks/notebook#9.-Social-Network-Analysis
+https://www.kaggle.com/code/andradaolteanu/covid-19-sentiment-analysis-social-networks/notebook#5.-Basic-EDA-on-Tweets-Data
+https://burtmonroe.github.io/TextAsDataCourse/Tutorials/TADA-Classification.nb.html
+https://tutorials.quanteda.io/machine-learning/nb/
+https://stackoverflow.com/questions/62329148/lemmatize-using-quanteda
+https://docs.h2o.ai/h2o-tutorials/latest-stable/tutorials/deeplearning/index.html
+https://burtmonroe.github.io/TextAsDataCourse/Tutorials/TADA-ClassificationV2.nb.html
+https://www.kaggle.com/code/peterge/vaccination-tweet-geo-and-sentiment-analysis
+https://www.kaggle.com/code/jacquelynfede/pfizertweets
+https://www.kaggle.com/code/shibaprasadb/analysing-pfizer-vaccine-tweets
