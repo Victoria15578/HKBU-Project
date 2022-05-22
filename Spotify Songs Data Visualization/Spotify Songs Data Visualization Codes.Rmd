@@ -1,0 +1,145 @@
+---
+title: "Huiyan_Zhang_21436576"
+author: "Victoria Zhang"
+date: "2022/3/14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction:
+### Spotify is an amazing app to play favorite music, discover new music and rediscover old favorites. This music streaming service apps covers a array of features for each song of its library, which record different genres songs preference. Hence, I am a little curious about the data visualization about spotify.Hence, I conducted some dynamic exploratory analysis based on the dataset from kaggle named Top Spotify Tracks of 2017 from https://www.kaggle.com/nadintamer/top-tracks-of-2017.
+
+### Here, I have make some exploratory analysis between tempo rate,keys with the valenance. Based on the official Spotify website,The valence of a song, the positive energy it brings. The higher the valence, the more positive energy it will sound, and it will sound happy, joyful, and joyful. As for the lower valence, the negative energy is relatively low, making people feel sad, frustrated or angry.
+
+### Let us have the grasp information have the key features meaning heres.
+
+#### name:name of the songs
+
+#### artists: Artist(s) of the song
+
+#### danceability：describes how suitable a track is for dancing based on a combination of musical elements including tempo
+
+#### energy： measure from 0.0 to 1.0 and represents a perceptual measure of intensity and activity. Typically, energetic tracks
+
+#### key：The key the track is in. Integers map to pitches using standard Pitch Class notation. E.g. 0 = C, 1 = C♯/D♭, 2 = D, and so
+
+#### loundness:The overall loudness of a track in decibels (dB). Loudness values are averaged across the entire track and are useful
+
+#### mode:Mode indicates the modality (major or minor) of a track, the type of scale from which its melodic content is
+
+#### speechiness:Speechiness detects the presence of spoken words in a track. The more exclusively speech-like the recording (e.g. talk)
+
+#### acousticness A confidence measure from 0.0 to 1.0 of whether the track is acoustic. 1.0 represents high confidence the track is
+
+
+#### instrumentalness:Predicts whether a track contains no vocals. "Ooh" and "aah" sounds are treated as instrumental in this context. Rap or
+
+#### liveness Detects the presence of an audience in the recording. Higher liveness values represent an increased probability that
+
+#### valence A measure from 0.0 to 1.0 describing the musical positiveness conveyed by a track. Tracks with high valence sound more
+
+#### tempo:The overall estimated tempo of a track in beats per minute (BPM). In musical terminology, tempo is the speed or
+
+#### duration_ms The duration of the track in milliseconds.
+
+
+#### time_signature:An estimated overall time signature of a track. The time signature (meter) is a notational convention to specify how many beats
+
+# Business Goals <br>
+### Our business goal in this project is to find out the relationship between tempo and keys. Hence, Spotify can based on the below recommendation to provide more accurate tailored music to provide recommendations to the users and provide more better good energy to them
+
+# Data Understanding
+
+```{r}
+setwd("C:/Users/Victoria Zhang/Documents/HKBU DABE Courses/second semester/ECON7930 Analytics for Spatial, Textual and Social Network Data/assignment 1")
+
+rm(list=ls())
+```
+
+```{r}
+#install the library
+library(magrittr)
+library(tidyverse)
+library(ggplot2)
+library(plotly)
+```
+
+```{r}
+#let us just have a short graph of the dataset
+df<-read.csv("Spotify Top Songs 2017.csv")
+head(df)
+#summary(df)
+
+#the dataset has 16 columns and 100 rows.
+dim(df)
+```
+```{r}
+#data cleaning for the dataset
+
+#check for the na values
+sum(is.na(df))
+
+#drop for the useless columns
+df<-subset(df,select=-c(id,time_signature))
+
+#view df head again
+head(df)
+```
+
+```{r}
+#perform some data transformation on the datasets
+
+#keys
+df$tonality<-sapply(df$key,as.numeric)
+df$tonality<-factor(df$tonality,labels=c("C","C#","D","D#","E","E#","F","F#","G","G#","A","A#"))
+
+#mode
+df$modality<-sapply(df$mode,as.numeric)
+df$modality<-factor(df$modality,labels=c("minor","major"))
+
+df$key_signatures<-paste0(df$modality,df$tonality)
+head(df)
+
+
+#tempo
+df$tempo_group[df$tempo>=75&df$tempo<76]<-"Adagio"
+df$tempo_group[df$tempo>=76&df$tempo<108]<-"Andante"
+df$tempo_group[df$tempo>=108&df$tempo<120]<-"Moderato"
+df$tempo_group[df$tempo>=120&df$tempo<156]<-"Allegro"
+df$tempo_group[df$tempo>=156&df$tempo<176]<-"Vivace"
+df$tempo_group[df$tempo >= 176 ] <- "Presto"
+
+mean(df$valence)
+df$valences_category[df$valence>=0&df$valence<0.25]<-"Very Depressed"
+df$valences_category[df$valence>=0.25&df$valence<0.5]<-"Sad"
+df$valences_category[df$valence>=0.5&df$valence<0.75]<-"Happy"
+df$valences_category[df$valence>0.75&df$valence<=1]<-"Very Cheerful"
+```
+
+```{r}
+# for the heatmap between tempo and key signatures fill with the valenace
+
+heatmp_data<- df %>%
+  dplyr::select(tempo_group,key_signatures,valences_category)%>%
+  group_by(tempo_group,key_signatures,valences_category) %>%
+  summarise(count=n())
+
+
+
+fig<-ggplot(data=heatmp_data,mapping=aes(x=tempo_group,y=key_signatures,fill=valences_category))+geom_tile(color = "white")+labs(title="Heatmap between tempo and keysignatures")+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 12, hjust = 1))+theme_minimal()+theme_bw()+theme(plot.title = element_text(size=18))
+
+ggplotly(fig)
+```
+### Summary: Most of the songs that are happly usually occurs in Andante while very depressed are in Allergo.
+
+
+# Reference:
+https://zh.soundoflife.com/blogs/experiences/spotify-wrapped-2020-music-genre <br>
+https://www.kaggle.com/raenish/cheatsheet-70-ggplot-charts<br>
+https://plotly.com/r/bar-charts/<br>
+https://ggplot2.tidyverse.org/reference/geom_density.html?q=density#null<br>
+https://en.wikipedia.org/wiki/Tempo<br>
