@@ -1,0 +1,694 @@
+---
+title: "Untitled"
+author: "Victoria Zhang"
+date: "2022/4/5"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
+```
+
+```{r}
+#install the packages
+install.packages("ggplot2")
+library(ggplot2)
+library(tidyverse)
+library(devtools)
+install_github("kbenoit/quanteda.dictionaries")
+install_github("quanteda/quanteda.sentiment")
+
+library(pacman)
+p_load("tidyverse", "ggplot2", "lubridate", "quanteda", "quanteda.dictionaries", "quanteda.sentiment", "quanteda.textplots")
+```
+
+```{r}
+#clear the environment
+rm(list=ls())
+
+#set the directory
+setwd("C:/Users/Victoria Zhang/Documents/HKBU DABE Courses/second semester/ECON7930 Analytics for Spatial, Textual and Social Network Data/assignment 2")
+```
+
+
+```{r}
+# read about the documents
+library(readtext)
+train<-read.csv("train.csv",header=FALSE,stringsAsFactors = FALSE)
+test<-read.csv("test.csv",header=FALSE,stringsAsFactors = FALSE)
+names(train) <- c("Rating", "Review")
+names(test) <- c("Rating", "Review")
+head(train)
+```
+
+```{r}
+#data processing
+train$Rating<-as.numeric(train$Rating)
+train$Review<-as.character(train$Review)
+
+test$Rating<-as.numeric(test$Rating)
+test$Review<-as.character(test$Review)
+```
+
+```{r}
+#replace \n
+train$Review<-gsub('__n', '', gsub('[\\\\]', '__', train$Review))
+test$Review<-gsub('__n', '', gsub('[\\\\]', '__', test$Review))
+test$Review<-gsub('__','',test$Review)
+
+#replace .
+train$Review<-gsub("\\.", " ",train$Review)
+test$Review<-gsub("\\.", " ",test$Review)
+
+#replace :
+train$Review<-gsub("\\:", " ",train$Review)
+test$Review<-gsub("\\:", " ",test$Review)
+
+
+#remove dash at the last position
+train$Review<-gsub("[-$]", " ",train$Review)
+test$Review<-gsub("[-$]", " ",test$Review)
+#train$Review<-gsub("-[^-]*$", " ",train$Review)
+#test$Review<-gsub("-[^-]*$", " ",test$Review)
+
+#replace__
+train$Review<-gsub("\\__", " ",train$Review)
+test$Review<-gsub("\\__", " ",test$Review)
+
+#replace ""
+#train$Review<-gsub("\"", "",train$Review)
+#test$Review<-gsub("\"", "",test$Review)
+
+#replace "
+train$Review<-gsub("\"", " ",train$Review)
+test$Review<-gsub("\"", " ",test$Review)
+```
+
+```{r}
+# Remove mentions, urls, emojis, numbers, punctuations, etc
+train$Review<-gsub("@\\w+", " ",train$Review)
+test$Review<-gsub("@\\w+", " ",test$Review)
+
+train$Review<-gsub("https?://.+", " ",train$Review)
+test$Review<-gsub("https?://.+", " ",test$Review)
+
+train$Review<-gsub("\\d+\\w*\\d*", " ",train$Review)
+test$Review<-gsub("\\d+\\w*\\d*", " ",test$Review)
+
+#train$Review<-gsub("[^\x01-\x7F]*", " ",train$Review)
+#test$Review<-gsub("[^\x01-\x7F]*", " ",test$Review)
+
+#train$Review<-gsub("^\\s+", " ",train$Review)
+#test$Review<-gsub("^\\s+", " ",test$Review)
+
+#train$Review<-gsub("[ |\t]+", " ",train$Review)
+#test$Review<-gsub("[ |\t]+", " ",test$Review)
+```
+
+
+```{r}
+head(train)
+head(test)
+```
+
+
+```{r}
+#for 1-2 rating stars into neg,4-5 for positive
+#create the variable sentiment
+train_subset<-subset(train,Rating!=3)
+train_subset$Sentiment<-ifelse(train_subset$Rating>=4,"Positive","Negative")
+train_subset$Sentiment<-as.character(train_subset$Sentiment)
+train_subset$Rating<-as.character(train_subset$Rating)
+head(train_subset)
+```
+
+```{r}
+#for 1-2 rating stars into neg,4-5 for positive
+#create the variable sentiment
+test_subset<-subset(test,Rating!=3)
+test_subset$Sentiment<-ifelse(test_subset$Rating>=4,"Positive","Negative")
+test_subset$Sentiment<-as.character(test_subset$Sentiment)
+test_subset$Rating<-as.character(test_subset$Rating)
+head(test_subset)
+```
+
+```{r}
+#text preprocessing
+train_subset_corpus<-corpus(train_subset,text_field = "Review")
+test_subset_corpus<-corpus(test_subset,text_field = "Review")
+```
+
+```{r}
+#training set
+head(docvars(train_subset_corpus))  # document-level variables
+#test set
+head(docvars(test_subset_corpus))  # document-level variables
+```
+
+
+```{r}
+summary(train_subset_corpus)
+summary(test_subset_corpus)
+```
+
+
+```{r}
+set.seed(1234)
+train_subset_corpus_sample<-quanteda::corpus_sample(train_subset_corpus, size = 10000)
+
+
+train_subset_corpus_sample<-train_subset_corpus_sample %>%
+   tokens(remove_punct = TRUE,
+         remove_symbols = TRUE,
+         remove_numbers = TRUE,
+         remove_url = TRUE,
+         ) %>% 
+  tokens_remove(stopwords("en"), padding = TRUE) %>% 
+  dfm() 
+
+train_subset_corpus_sample<-train_subset_corpus_sample %>%
+    dfm_remove(".") %>% 
+  dfm_remove("__") %>%
+  dfm_remove("-") %>%
+  dfm_trim(min_termfreq = 5) %>%
+  dfm_select("^\\p{L}+$", valuetype = "regex", min_nchar = 2) %>%
+  dfm_remove("")
+```
+
+
+```{r}
+#process the test
+library(magrittr)
+test_subset_corpus<-quanteda::corpus_sample(test_subset_corpus, size = 10000)
+test_subset_corpus<-test_subset_corpus %>%
+  tokens(remove_punct = TRUE,
+         remove_symbols = TRUE,
+         remove_numbers = TRUE,
+         remove_url = TRUE,
+         ) %>% 
+  tokens_remove(stopwords("en"), padding = TRUE) %>% 
+  dfm()
+
+test_subset_corpus<-test_subset_corpus %>%
+    dfm_remove(".") %>% 
+  dfm_remove("__") %>%
+  dfm_remove("-") %>%
+  dfm_trim(min_termfreq = 5) %>%
+  dfm_select("^\\p{L}+$", valuetype = "regex", min_nchar = 2) %>%
+  dfm_remove("")
+
+
+```
+
+
+```{r}
+#wordcloud
+#training  set wordcloud
+freqs1 <- colSums(train_subset_corpus_sample)
+words1 <- colnames(train_subset_corpus_sample)
+wordlist_train <- data.frame(words1, freqs1)
+
+library(wordcloud2)
+wordcloud2(wordlist_train, size=0.5, shape="circle")
+```
+
+```{r}
+#test set 
+freqs2 <- colSums(test_subset_corpus)
+words2 <- colnames(test_subset_corpus)
+wordlist_test <- data.frame(words2, freqs2)
+library(wordcloud2)
+wordcloud2(wordlist_test, size=0.5, shape="circle")
+```
+
+
+
+```{r}
+#training set
+ndocs_train <- ndoc(train_subset_corpus_sample)
+
+corpusinfo_train <- summary(train_subset_corpus_sample, n = ndocs_train)
+head(corpusinfo_train)
+
+#test set
+ndocs_test <- ndoc(test_subset_corpus)
+
+corpusinfo_test <- summary(test_subset_corpus, n = ndocs_test)
+head(corpusinfo_test)
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+p_load("quanteda.textstats")
+
+#training set frequency
+textstat_frequency(train_subset_corpus_sample, n = 100) -> feature_dfm_train
+
+fct_reorder(feature_dfm_train$feature, feature_dfm_train$frequency, .desc=F) -> feature_dfm_train$feature
+
+feature_dfm_train %>% 
+  ggplot(aes(x=feature, y=frequency)) +
+  geom_point()+
+  theme_minimal()+
+  theme(panel.grid.minor = element_blank()) +
+  coord_flip()
+  
+dfm_tfidf(train_subset_corpus_sample)-> dfmW_train
+dfmW_train
+
+
+```
+
+```{r}
+#test set frequency
+textstat_frequency(test_subset_corpus, n = 100) -> feature_dfm_test
+
+fct_reorder(feature_dfm_test$feature, feature_dfm_test$frequency, .desc=F) -> feature_dfm_test$feature
+
+feature_dfm_test %>% 
+  ggplot(aes(x=feature, y=frequency)) +
+  geom_point()+
+  theme_minimal()+
+  theme(panel.grid.minor = element_blank()) +
+  coord_flip()
+  
+dfm_tfidf(test_subset_corpus)-> dfmW_test
+dfmW_test
+
+```
+
+```{r message=FALSE, warning=FALSE}
+#training set
+textstat_frequency(train_subset_corpus_sample) %>% 
+  #desv feature
+  arrange(-frequency) %>% 
+  mutate(cum=cumsum(frequency)/1000000) %>% 
+  #cumulative percentage
+  mutate(cumper=cumsum(frequency/sum(frequency)*100))-> feature_dfm_train
+
+#x for ranking while y for the cumulative sum
+fct_reorder(feature_dfm_train$feature, feature_dfm_train$frequency, .desc=T) -> feature_dfm_train$feature
+
+feature_dfm_train %>% 
+  ggplot(aes(x=rank, y=cum))+
+  geom_point()+
+  theme_minimal()+
+  labs(x="Frequency Order", y="Cumulative Frequency (in Million)")
+```
+
+```{r message=FALSE, warning=FALSE}
+#test set
+textstat_frequency(test_subset_corpus) %>% 
+  #desv feature
+  arrange(-frequency) %>% 
+  mutate(cum=cumsum(frequency)/1000000) %>% 
+  #cumulative percentage
+  mutate(cumper=cumsum(frequency/sum(frequency)*100))-> feature_dfm_test
+
+#x for ranking while y for the cumulative sum
+fct_reorder(feature_dfm_test$feature, feature_dfm_test$frequency, .desc=T) -> feature_dfm_test$feature
+
+feature_dfm_test %>% 
+  ggplot(aes(x=rank, y=cum))+
+  geom_point()+
+  theme_minimal()+
+  labs(x="Frequency Order", y="Cumulative Frequency (in Million)")
+```
+
+```{r message=FALSE, warning=FALSE}
+### Cumulative percentage  for training set
+feature_dfm_train %>% 
+  ggplot(aes(x=rank, y=cumper))+
+  geom_point()+
+  theme_minimal()+
+  labs(x="Frequency Order", y="Cumulative %")+
+  scale_y_continuous(breaks = seq(0, 100, by = 10))
+
+```
+
+
+```{r message=FALSE, warning=FALSE}
+### Cumulative percentage  for test set
+feature_dfm_test %>% 
+  ggplot(aes(x=rank, y=cumper))+
+  geom_point()+
+  theme_minimal()+
+  labs(x="Frequency Order", y="Cumulative %")+
+  scale_y_continuous(breaks = seq(0, 100, by = 10))
+
+```
+```{r}
+##generate the dfm for training set
+dfm_tfidf(train_subset_corpus_sample)-> dfmW_train
+
+textstat_frequency(dfmW_train, force=T) %>%
+  mutate(avg_tfidf=frequency/10000) %>% 
+  arrange(-avg_tfidf) %>% 
+  mutate(rank=min_rank(-frequency)) -> feature_dfmW_train
+
+head(feature_dfmW_train)
+tail(feature_dfm_train)
+
+
+##generate the dfm for test set
+dfm_tfidf(test_subset_corpus)-> dfmW_test
+
+textstat_frequency(dfmW_test, force=T) %>%
+  mutate(avg_tfidf=frequency/10000) %>% 
+  arrange(-avg_tfidf) %>% 
+  mutate(rank=min_rank(-frequency)) -> feature_dfmW_test
+
+head(feature_dfmW_test)
+tail(feature_dfm_test)
+```
+
+```{r}
+#another frequency word cloud for training set
+feature_dfmW_train_1 <- as.data.frame(cbind(feature_dfmW_train[,1], feature_dfmW_train[,6]))
+
+head(feature_dfmW_train_1)
+feature_dfmW_train_1$avg_tfidf<-round(feature_dfmW_train_1$avg_tfidf*10000,0)
+feature_dfmW_train_1
+wordcloud2(feature_dfmW_train_1, size=0.5, shape="circle")
+
+#another frequency word cloud for test set
+feature_dfmW_test_1 <- as.data.frame(cbind(feature_dfmW_test[,1], feature_dfmW_test[,6]))
+
+head(feature_dfmW_test_1)
+feature_dfmW_test_1$avg_tfidf<-round(feature_dfmW_test_1$avg_tfidf*10000,0)
+feature_dfmW_test_1
+wordcloud2(feature_dfmW_test_1, size=0.5, shape="circle")
+
+```
+
+
+
+```{r}
+library(quanteda)
+library(quanteda.textmodels)
+sentmod.nb <- textmodel_nb(train_subset_corpus_sample,train_subset_corpus_sample$Sentiment, distribution = "Bernoulli")
+summary(sentmod.nb)
+
+yelp_matched <- dfm_match(test_subset_corpus,features=featnames(train_subset_corpus_sample))
+```
+
+```{r}
+#for the classification
+actual_class <- yelp_matched$Sentiment
+predicted_value.nb <- predict(sentmod.nb, newdata=yelp_matched, type="probability")
+predicted_class.nb <- predict(sentmod.nb, newdata=yelp_matched)
+tab_class <- table(actual_class,predicted_class.nb)
+tab_class
+```
+
+```{r}
+# for the confusion matrix
+library(caret)
+confusionMatrix(tab_class, mode = "everything")
+```
+
+```{r}
+#find the most positive and most negative words
+## Most positive words
+sort(sentmod.nb$param[2,],dec=T)[1:20]
+
+## Most negative words
+sort(sentmod.nb$param[2,],dec=F)[1:20]
+```
+
+```{r}
+#for the auc value
+library(ROCit)
+sentmod.nb_roc <- rocit(score =predict(sentmod.nb, newdata=yelp_matched, type="probability")[,"Positive"] ,class = actual_class,negref = "Negative")
+sentmod.nb_roc$AUC
+```
+
+
+```{r}
+library(tidyverse)
+
+#positive words
+fig1<-barplot(sort(sentmod.nb$param[2,],dec=T)[1:20],col="purple",main="Top 20 Positive Words",xlab="Words",ylab="Probability")
+fig1
+
+#negative words
+fig2<-barplot(sort(sentmod.nb$param[2,],dec=F)[1:20],col="purple",main="Top 20 Negative Words",xlab="Words",ylab="Probability")
+fig2
+```
+
+```{r}
+#plot for the distribution
+summary(sentmod.nb)
+```
+
+
+
+```{r}
+## Plot weights
+plot(colSums(train_subset_corpus_sample),sentmod.nb$param[2,], pch=19, col=rgb(0,0,0,.3), cex=.5, log="x", main="Posterior Probabilities, Naive Bayes Classifier, IMDB", ylab="<--- Negative Reviews --- Positive Reviews --->", xlab="Total Appearances")
+text(colSums(train_subset_corpus_sample),sentmod.nb$param[2,], colnames(train_subset_corpus_sample),pos=4,cex=5*abs(.5-sentmod.nb$param[2,]), col=rgb(0,0,0,1.5*abs(.5-sentmod.nb$param[2,])))
+```
+
+
+```{r}
+# Look a little closer at the negative
+## Plot weights
+plot(colSums(train_subset_corpus_sample),sentmod.nb$param[2,], pch=19, col=rgb(0,0,0,.3), cex=.5, log="x", main="Posterior Probabilities, Naive Bayes Classifier, IMDB", ylab="<--- Negative Reviews --- Positive Reviews --->", xlab="Total Appearances", xlim=c(10,1000),ylim=c(0,.25))
+text(colSums(train_subset_corpus_sample),sentmod.nb$param[2,], colnames(train_subset_corpus_sample),pos=4,cex=5*abs(.5-sentmod.nb$param[2,]), col=rgb(0,0,0,1.5*abs(.5-sentmod.nb$param[2,])))
+```
+
+```{r}
+plot(colSums(train_subset_corpus_sample),sentmod.nb$param[2,], pch=19, col=rgb(0,0,0,.3), cex=.5, log="x", main="Posterior Probabilities, Naive Bayes Classifier, IMDB", ylab="<--- Negative Reviews --- Positive Reviews --->", xlab="Total Appearances", xlim=c(10,1000),ylim=c(0.75,1.0))
+text(colSums(train_subset_corpus_sample),sentmod.nb$param[2,], colnames(train_subset_corpus_sample),pos=4,cex=5*abs(.5-sentmod.nb$param[2,]), col=rgb(0,0,0,1.5*abs(.5-sentmod.nb$param[2,])))
+```
+
+```{r}
+#for the predictions
+predicted_prob <- predict(sentmod.nb, newdata=yelp_matched, type="probability")
+dim(predicted_prob)
+head(predicted_prob)
+summary(predicted_prob)
+```
+
+
+## Logistic Regression and ridge regression
+
+```{r}
+p_load("glmnet", "foreach", "iterators", "parallel", "doParallel")
+
+# Ridge regression (Logistic with L2-regularization)
+cl = makeCluster(4)
+registerDoParallel(cl) # parallelize to speed up
+
+sentmod.ridge <- cv.glmnet(x=train_subset_corpus_sample,
+                      y=train_subset_corpus_sample$Sentiment,
+                           family="binomial", 
+                           alpha=0,  # alpha = 0: ridge regression
+                           nfolds=5, # 5-fold cross-validation
+                           parallel=TRUE, 
+                           intercept=TRUE,
+                           type.measure="class")
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+plot(sentmod.ridge)
+```
+
+```{r}
+
+# Let us look at the performance
+predicted_value.ridge <- predict(sentmod.ridge, newx=yelp_matched,s="lambda.min")[,1]
+
+predicted_class.ridge <- rep(NA,length(actual_class))
+
+predicted_class.ridge[predicted_value.ridge>0] <- "Positive"
+predicted_class.ridge[predicted_value.ridge<0] <- "Negative"
+
+tab_class.ridge <- table(actual_class,predicted_class.ridge)
+tab_class.ridge
+
+confusionMatrix(tab_class.ridge,mode="everything")
+
+```
+
+```{r}
+#auc value
+sentmod.ridge_roc <- rocit(score = predicted_value.ridge, class = actual_class,negref = "Negative")
+sentmod.ridge_roc$AUC
+```
+
+
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+# plots
+plot(colSums(train_subset_corpus_sample),coef(sentmod.ridge)[-1,1], pch=19, col=rgb(0,0,0,.3), cex=.5, log="x", main="Ridge Regression Coefficients, IMDB", ylab="<--- Negative Reviews --- Positive Reviews --->", xlab="Total Appearances", xlim = c(1,50000))
+
+text(colSums(train_subset_corpus_sample),coef(sentmod.ridge)[-1,1], colnames(train_subset_corpus_sample),pos=4,cex=200*abs(coef(sentmod.ridge)[-1,1]))
+
+plot(colSums(train_subset_corpus_sample),log(colSums(train_subset_corpus_sample))*coef(sentmod.ridge)[-1,1], pch=19, col=rgb(0,0,0,.3), cex=.5, log="x", main="Ridge Regression Coefficients (Impact Weighted), IMDB", ylab="<--- Negative Reviews --- Positive Reviews --->", xlab="Total Appearances", xlim = c(1,50000))
+
+text(colSums(train_subset_corpus_sample),log(colSums(train_subset_corpus_sample))*coef(sentmod.ridge)[-1,1], colnames(train_subset_corpus_sample),pos=4,cex=50*abs(log(colSums(train_subset_corpus_sample))*coef(sentmod.ridge)[-1,1]))
+
+
+
+```
+
+
+```{r}
+# Most positive and negative features by impact
+sort(log(colSums(train_subset_corpus_sample))*coef(sentmod.ridge)[-1,1],dec=T)[1:20]
+sort(log(colSums(train_subset_corpus_sample))*coef(sentmod.ridge)[-1,1],dec=F)[1:20]
+```
+
+## Logistic regression, lasso regression
+```{r}
+
+#LASSO (Logistic with L1-regularization)
+sentmod.lasso <- cv.glmnet(x=train_subset_corpus_sample,
+                           y=train_subset_corpus_sample$Sentiment,
+                           family="binomial", 
+                           alpha=1,  # alpha = 1: LASSO
+                           nfolds=5, # 5-fold cross-validation
+                           parallel=TRUE, 
+                           intercept=TRUE,
+                           type.measure="class")
+```
+
+```{r}
+sentmod.lasso
+```
+
+
+```{r}
+# Tuning: To find out the best lambda
+plot(sentmod.lasso)
+```
+
+```{r}
+## calculate the minimal MSE
+min(sentmod.lasso$cvm)
+```
+
+```{r}
+## the corresonding log(lambda)
+log(sentmod.lasso$lambda.min)
+```
+
+```{r}
+## within 1 SE of minimum MSE
+sentmod.lasso$cvm[sentmod.lasso$lambda == sentmod.lasso$lambda.1se]
+```
+
+```{r}
+## the largest log(lambda) for within the range of 1 SE of the minimal MSE
+sentmod.lasso$lambda.1se
+```
+
+```{r}
+# performance
+predicted_value.lasso <- predict(sentmod.lasso, newx=train_subset_corpus_sample,s="lambda.min")[,1]
+predicted_class.lasso <- rep(NA,length(actual_class))
+predicted_class.lasso[predicted_value.lasso>0] <- "Positive"
+predicted_class.lasso[predicted_value.lasso<0] <- "Negative"
+tab_class.lasso <- table(actual_class,predicted_class.lasso)
+tab_class.lasso
+
+confusionMatrix(tab_class.lasso, mode="everything")
+```
+
+```{r}
+#auc value
+sentmod.lasso_roc <- rocit(score = predicted_value.lasso, class = actual_class,negref = "Negative")
+sentmod.lasso_roc$AUC
+```
+
+
+```{r}
+# plots
+plot(colSums(train_subset_corpus_sample),coef(sentmod.lasso)[-1,1], pch=19, col=rgb(0,0,0,.3), cex=.5, log="x", main="LASSO Coefficients, IMDB", ylab="<--- Negative Reviews --- Positive Reviews --->", xlab="Total Appearances", xlim = c(1,50000))
+
+#text(colSums(train_subset_corpus_sample),coef(sentmod.lasso)[-1,1], colnames(train_subset_corpus_sample),pos=4,cex=2*abs(coef(sentmod.lasso)[-1,1]), col=rgb(0,0,0,1*abs(coef(sentmod.lasso)[-1,1])))
+
+plot(colSums(train_subset_corpus_sample),log(colSums(train_subset_corpus_sample))*coef(sentmod.lasso)[-1,1], pch=19, col=rgb(0,0,0,.3), cex=.5, log="x", main="LASSO Coefficients (Impact Weighted), IMDB", ylab="<--- Negative Reviews --- Positive Reviews --->", xlab="Total Appearances", xlim = c(1,50000))
+
+#text(colSums(train_subset_corpus_sample),log(colSums(train_subset_corpus_sample))*coef(sentmod.lasso)[-1,1], colnames(train_subset_corpus_sample),pos=4,cex=.8*abs(log(colSums(train_subset_corpus_sample))*coef(sentmod.lasso)[-1,1]), col=rgb(0,0,0,.25*abs(log(colSums(train_subset_corpus_sample))*coef(sentmod.lasso)[-1,1])))
+
+# Most positive and negative features by impact
+sort(log(colSums(train_subset_corpus_sample))*coef(sentmod.lasso)[-1,1],dec=T)[1:20]
+sort(log(colSums(train_subset_corpus_sample))*coef(sentmod.lasso)[-1,1],dec=F)[1:20]
+```
+
+
+
+
+## Support Vector mechine
+
+```{r}
+
+p_load("e1071")
+
+sentmod.svm <- svm(x=train_subset_corpus_sample,
+                   y=as.factor(train_subset_corpus_sample$Sentiment),
+                   kernel="linear", 
+                   cost=10,  # arbitrary regularization cost
+                   probability=TRUE)
+```
+
+
+```{r}
+predicted_class.svm <- predict(sentmod.svm, newdata=yelp_matched)
+tab_class.svm <- table(actual_class,predicted_class.svm)
+tab_class.svm
+
+confusionMatrix(tab_class.svm, mode="everything")
+```
+
+```{r}
+summary(sentmod.svm)
+```
+
+```{r}
+predicted_prob.svm <- attr(predict(sentmod.svm, newdata=yelp_matched, probability=TRUE),"probabilities")[,"Positive"]
+
+sentmod.svm_roc <- rocit(score = predicted_prob.svm, class = actual_class,negref = "Negative")
+sentmod.svm_roc$AUC
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+# for the coefficients
+#t(sentmod.svm$SV) %*% sentmod.svm$coefs
+sort(log(colSums(train_subset_corpus_sample))*sentmod.svm$coefs[-1,1],dec=T)[1:20]
+sort(log(colSums(train_subset_corpus_sample))*sentmod.svm$coefs[-1,1],dec=F)[1:20]
+```
+
+
+
+```{r}
+plot(c(0,1),c(0,1), type="n",ylab = "Sensitivity (TPR)", xlab = "1-Specificity (FPR)",main="ROC Curve")
+par(new=TRUE)
+lines(c(0,1),c(0,1), col="grey", lty=2)
+lines(sentmod.nb_roc$FPR,sentmod.nb_roc$TPR,col="red",lwd=2)
+lines(sentmod.ridge_roc$FPR,sentmod.ridge_roc$TPR,col="orange",lwd=2)
+lines(sentmod.lasso_roc$FPR,sentmod.lasso_roc$TPR,lwd=2,col="green")
+lines(sentmod.svm_roc$FPR,sentmod.svm_roc$TPR,lwd=2,col="purple")
+
+legend("topright",legend=c("Naive Bayes","Ridge Regression","Lasso","Support Vector Machine"), col=c("red","orange","green","purple"),lty=1,lwd=2)
+```
+
+
+
+
+Reference:
+- https://rdrr.io/cran/readtext/man/readtext.html
+- https://quanteda.io/articles/pkgdown/quickstart_cn.html
+- https://www.kaggle.com/code/vennaa/notebook-spam-text-message-classification-with-r
+- https://tutorials.quanteda.io/machine-learning/nb/
+- https://www.tutorialspoint.com/how-to-remove-hyphen-at-last-position-from-every-value-in-r-data-frame-column
+- https://discuss.analyticsvidhya.com/t/h2o-data-frame-error/76609/3
+- https://towardsdatascience.com/text-mining-with-r-gathering-and-cleaning-data-8f8b0d65e67c
+https://www.cnblogs.com/xudongliang/p/6912474.html
+https://docs.h2o.ai/h2o/latest-stable/h2o-docs/data-science/stacked-ensembles.html
+https://burtmonroe.github.io/TextAsDataCourse/Tutorials/TADA-ClassificationV2.nb.html#a-first-ensemble
